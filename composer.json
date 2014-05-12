@@ -6,13 +6,17 @@
     "license": "MIT",
     "authors": [
         {
-            "name": "Ludovic Barreca"
+            "name": "yuuki takezawa",
+	        "email": "yuuki.takezawa@comnect.jp.net"
         }
     ],
     "require": {
-        "php": ">=5.3.0"
+        "php": ">=5.4",
+	    "monolog/monolog": "1.*"
     },
     "autoload": {
-        "psr-0": { "ElephantIO": "lib/" }
+        "psr-4": {
+	        "Comnect": "src/"
+        }
     }
 }
