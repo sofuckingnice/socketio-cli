@@ -1,5 +1,5 @@
 <?php
-namespace Comnect\WebSocket\Io;
+namespace Ytake\WebSocket\Io;
 
 /**
  * Interface PayloadInterface

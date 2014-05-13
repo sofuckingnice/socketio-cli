@@ -1,5 +1,8 @@
 <?php
-namespace Comnect\WebSocket\Io;
+namespace Ytake\WebSocket\Io;
+
+use Closure;
+use Ytake\WebSocket\Io\Exceptions\SocketHandshakeException;
 
 /**
  * ElephantIOClient is a rough implementation of socket.io protocol.
@@ -19,8 +22,6 @@ class Client
     const TYPE_ERROR        = 7;
     const TYPE_NOOP         = 8;
 
-    private $socketIOUrl;
-    private $serverHost;
     private $serverPort = 80;
     private $session;
     private $fd;
@@ -32,15 +33,19 @@ class Client
     private $handshakeTimeout = null;
     private $callbacks = array();
     private $handshakeQuery = '';
+    /** @var array */
+    private $response;
+
+    protected $url;
 
     protected $query = null;
-
-    private $namespace = null;
-
+    /** @var null  */
+    protected $namespace = null;
+    /** @var \Ytake\WebSocket\Io\PayloadInterface  */
     protected $payload;
 
     /**
-     * @param Payload $payload
+     * @param PayloadInterface $payload
      */
     public function __construct(PayloadInterface $payload)
     {
@@ -55,15 +60,16 @@ class Client
      * @param bool $read
      * @param bool $checkSslPeer
      * @param bool $debug
+     * @return $this
      */
     public function client(
         $url = 'http://localhost:3000', $socketIoPath = 'socket.io', $protocol = 1,
         $read = true, $checkSslPeer = true, $debug = false
     ) {
-        $this->socketIOUrl = $url.'/'.$socketIoPath . '/' . (string)$protocol;
+        $this->url = $url.'/'.$socketIoPath . '/' . (string)$protocol;
         $this->read = $read;
         $this->debug = $debug;
-        $this->parseUrl();
+        //$this->parseUrl();
         $this->checkSslPeer = $checkSslPeer;
         return $this;
     }
@@ -97,18 +103,12 @@ class Client
     /**
      * Initialize a new connection
      *
-     * @param boolean $keepalive
      * @return Client
      */
-    public function init($keepalive = false)
+    public function init()
     {
         $this->handshake();
-        if ($keepalive)
-        {
-            $this->keepAlive();
-        } else {
-            return $this;
-        }
+        return $this;
     }
 
     /**
@@ -224,7 +224,7 @@ class Client
      * @param int $id
      * @param int $endpoint
      * @param string $message
-     * @return ElephantIO\Client
+     * @throws \InvalidArgumentException
      */
     public function send($type, $id = null, $endpoint = null, $message = null)
     {
@@ -254,7 +254,6 @@ class Client
      * @param array $args
      * @param string $endpoint
      * @param function $callback - ignored for the time being
-     * @return ElephantIO\Client
      * @todo work on callbacks
      */
     public function emit($event, $args, $endpoint = null, $callback = null)
@@ -356,8 +355,7 @@ class Client
      */
     private function handshake()
     {
-        $url = $this->socketIOUrl;
-
+        $url = $this->url;
         if (!empty($this->handshakeQuery))
         {
             $url .= $this->handshakeQuery;
@@ -377,13 +375,18 @@ class Client
             curl_setopt($ch, CURLOPT_TIMEOUT_MS, $this->handshakeTimeout);
         }
 
-        $res = curl_exec($ch);
-        if ($res === false || $res === '')
+        $result = curl_exec($ch);
+        if ($result === false || $result === '')
         {
-            throw new \Exception(curl_error($ch));
+            $errorInfo = curl_error($ch);
+            curl_close($ch);
+            throw new SocketHandshakeException($errorInfo);
         }
+        //
+        $this->response = curl_getinfo($ch);
 
-        $sess = explode(':', $res);
+
+        $sess = explode(':', $result);
         $this->session['sid'] = $sess[0];
         $this->session['heartbeat_timeout'] = $sess[1];
         $this->session['connection_timeout'] = $sess[2];
@@ -400,9 +403,9 @@ class Client
     /**
      * @param callable $function
      */
-    public function connection($keepAlive = false)
+    public function connection()
     {
-        $this->init($keepAlive)->connect();
+        //$this->init()->connect();
         return $this;
     }
 
@@ -472,7 +475,7 @@ class Client
      */
     private function parseUrl()
     {
-        $url = parse_url($this->socketIOUrl);
+        $url = parse_url($this->url);
 
         $this->serverPath = $url['path'];
         $this->serverHost = $url['host'];
@@ -500,5 +503,13 @@ class Client
             $this->socketIOUrl = $this->socketIOUrl . $this->query;
         }
         return $this;
+    }
+
+    /**
+     * @return array
+     */
+    public function getResponseHeader()
+    {
+        return $this->response;
     }
 }
