@@ -1,5 +1,5 @@
 {
-    "name": "ytake/socket.io-client",
+    "name": "ytake/socketio-client",
     "description": "Send events and receive socket.io PHP client",
     "keywords": ["Socket.io", "WebSocket"],
     "license": "MIT",
