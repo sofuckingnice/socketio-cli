@@ -13,8 +13,8 @@
         <!-- <server name="GS_BIN" value="CHOOSE_YOUR_GS_HERE" /> -->
     </php>
     <testsuites>
-        <testsuite name="Elephant.io test suite">
-            <directory>./test/</directory>
+        <testsuite name="socket.io test suite">
+            <directory>./tests/</directory>
         </testsuite>
     </testsuites>
 </phpunit>

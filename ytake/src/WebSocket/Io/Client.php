@@ -2,13 +2,13 @@
 namespace Ytake\WebSocket\Io;
 
 use Closure;
+use Ytake\WebSocket\Io\Exceptions\SocketErrorException;
 use Ytake\WebSocket\Io\Exceptions\SocketHandshakeException;
 
 /**
- * ElephantIOClient is a rough implementation of socket.io protocol.
- * It should ease you dealing with a socket.io server.
- *
- * @author Ludovic Barreca <ludovic@balloonup.com>
+ * Class Client
+ * @package Ytake\WebSocket\Io
+ * @author  yuuki.takezawa<yuuki.takezawa@excite.jp>
  */
 class Client
 {
@@ -22,40 +22,46 @@ class Client
     const TYPE_ERROR        = 7;
     const TYPE_NOOP         = 8;
 
-    private $serverPort = 80;
     private $session;
     private $fd;
-    private $buffer;
-    private $lastId = 0;
     private $read;
+    private $heartbeatStamp = 0;
     private $checkSslPeer = true;
     private $debug;
     private $handshakeTimeout = null;
-    private $callbacks = array();
-    private $handshakeQuery = '';
+    /** @var array  */
+    private $callbacks = [];
     /** @var array */
     private $response;
-
+    /** @var string */
     protected $url;
-
-    protected $query = null;
+    /** @var   */
+    protected $query;
     /** @var null  */
-    protected $namespace = null;
+    protected $namespace;
     /** @var \Ytake\WebSocket\Io\PayloadInterface  */
     protected $payload;
+    /** @var \Ytake\WebSocket\Io\HeaderInterface  */
+    protected $header;
+    /** @var \Ytake\WebSocket\Io\LogInterface  */
+    protected $log;
 
     /**
      * @param PayloadInterface $payload
+     * @param HeaderInterface $header
+     * @param LogInterface $log
      */
-    public function __construct(PayloadInterface $payload)
+    public function __construct(PayloadInterface $payload, HeaderInterface $header, LogInterface $log)
     {
         $this->payload = $payload;
+        $this->header = $header;
+        $this->log = $log;
     }
 
     /**
-     *
+     * socket.io client
      * @param string $url
-     * @param string $socketIoPath
+     * @param string $ioPath
      * @param int $protocol
      * @param bool $read
      * @param bool $checkSslPeer
@@ -63,13 +69,12 @@ class Client
      * @return $this
      */
     public function client(
-        $url = 'http://localhost:3000', $socketIoPath = 'socket.io', $protocol = 1,
+        $url = 'http://localhost:3000', $ioPath = 'socket.io', $protocol = 1,
         $read = true, $checkSslPeer = true, $debug = false
     ) {
-        $this->url = $url.'/'.$socketIoPath . '/' . (string)$protocol;
+        $this->url = "{$url}/{$ioPath}/" . (string)$protocol;
         $this->read = $read;
         $this->debug = $debug;
-        //$this->parseUrl();
         $this->checkSslPeer = $checkSslPeer;
         return $this;
     }
@@ -89,26 +94,150 @@ class Client
     }
 
     /**
-     * Set query to be sent during handshake.
-     *
-     * @param array $query Query paramters as key => value
-     * @return Client
+     * add handshake query
+     * @param array $array
+     * @return $this
      */
-    public function setHandshakeQuery(array $query)
+    public function query(array $array)
     {
-        $this->handshakeQuery = '?' . http_build_query($query);
+        if(count($array))
+        {
+            $this->query = '?' . http_build_query($array);
+        }
         return $this;
     }
 
     /**
-     * Initialize a new connection
+     * Set Handshake timeout in milliseconds
      *
-     * @return Client
+     * @param int $delay
+     * @return $this
      */
-    public function init()
+    public function setHandshakeTimeout($delay)
     {
-        $this->handshake();
+        $this->handshakeTimeout = $delay;
         return $this;
+    }
+
+    /**
+     * socket.io connection
+     * @param callable $callback
+     * @return $this
+     */
+    public function connection(callable $callback = null)
+    {
+        // connect
+        $this->connect();
+        if(!is_null($callback))
+        {
+            call_user_func($callback, $this);
+        }
+        return $this;
+    }
+
+    /**
+     * Attach an event handler function for a given event
+     *
+     * @access public
+     * @param string $event
+     * @param Closure $callback
+     * @throws \InvalidArgumentException
+     * @return string
+     */
+    public function on($event, callable $callback)
+    {
+        if (!is_callable($callback))
+        {
+            throw new \InvalidArgumentException('argument 2 must be callable.');
+        }
+
+        if (!isset($this->callbacks[$event]))
+        {
+            $this->callbacks[$event] = array();
+        }
+        // @TODO Handle case where callback is a string
+        if (in_array($callback, $this->callbacks[$event]))
+        {
+            $this->debug('Skip existing callback');
+            return false;
+        }
+        $this->callbacks[$event][] = $callback;
+        return $this;
+    }
+
+    /**
+     * Emit an event
+     *
+     * @param string $event
+     * @param array $args
+     * @return $this
+     */
+    public function emit($event, array $args)
+    {
+        $this->send(
+            self::TYPE_EVENT, null, $this->namespace, json_encode(['name' => $event, 'args' => $args])
+        );
+        return $this;
+    }
+
+    /**
+     * Send message to the websocket
+     *
+     * @access public
+     * @param int $type
+     * @param int $id
+     * @param int $endpoint
+     * @param string $message
+     * @return $this
+     * @throws \InvalidArgumentException
+     */
+    public function send($type, $id = null, $endpoint = null, $message = null)
+    {
+        if (!is_int($type) || $type > 8)
+        {
+            throw new \InvalidArgumentException('type parameter must be an integer strictly inferior to 9.');
+        }
+
+        $rawMessage = "{$type}:{$id}:{$endpoint}:{$message}";
+        $this->payload->setOpcode(Payload::OPCODE_TEXT)->setMask(true)->setPayload($rawMessage);
+        $encoded = $this->payload->encodePayload();
+
+        fwrite($this->fd, $encoded);
+        // wait 100ms before closing connexion
+        usleep(100 * 1000);
+        $this->debug('Sent '.$rawMessage);
+        return $this;
+    }
+
+    /**
+     * @return array
+     */
+    public function getResponse()
+    {
+        return $this->response;
+    }
+
+    /**
+     * @return mixed
+     */
+    public function getSession()
+    {
+        return $this->session;
+    }
+
+    /**
+     * disconnect
+     * @return bool
+     */
+    public function disconnect()
+    {
+        if (is_resource($this->fd))
+        {
+            $this->send(self::TYPE_DISCONNECT, '', $this->namespace);
+            fclose($this->fd);
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -131,18 +260,21 @@ class Client
             $w = $e = null;
 
             if (stream_select($r, $w, $e, 5) == 0) continue;
-            $res = $this->read();
-            $sess = explode(':', $res, 4);
-            if ((int)$sess[0] === self::TYPE_EVENT) {
-                unset($sess[0], $sess[1], $sess[2]);
+            $result = $this->read();
+            $session = explode(':', $result, 4);
+            if ((int)$session[0] === self::TYPE_EVENT)
+            {
+                unset($session[0], $session[1], $session[2]);
 
-                $response = json_decode(implode(':', $sess), true);
+                $response = json_decode(implode(':', $session), true);
                 $name = $response['name'];
                 $data = $response['args'][0];
-                //$this->stdout('debug', 'Receive event "' . $name . '" with data "' . $data['message'] . '"');
 
-                if (!empty($this->callbacks[$name])) {
-                    foreach ($this->callbacks[$name] as $callback) {
+                $this->debug("Receive event {$name} with data {$data['message']}");
+                if (!empty($this->callbacks[$name]))
+                {
+                    foreach ($this->callbacks[$name] as $callback)
+                    {
                         call_user_func($callback, $data);
                     }
                 }
@@ -172,10 +304,9 @@ class Client
                 $payload_len = $payload_len[1];
                 break;
             case 127:
-                $this->stdout('error', "Next 8 bytes are 64bit uint payload length, not yet implemented, since PHP can't handle 64bit longs!");
+                $this->debug("Next 8 bytes are 64bit uint payload length, not yet implemented, since PHP can't handle 64bit longs!");
                 break;
         }
-
         // Use buffering to handle packet size > 16Kb
         $read = 0;
         $payload = '';
@@ -183,146 +314,153 @@ class Client
             $read += strlen($buff);
             $payload .= $buff;
         }
-        $this->stdout('debug', 'Received ' . $payload);
-
+        $this->debug('Received ' . $payload);
         return $payload;
     }
 
     /**
-     * Attach an event handler function for a given event
-     *
-     * @access public
-     * @param string $event
-     * @param Closure $callback
-     * @return string
+     * @access private
+     * @param $message
+     * @return void
      */
-    public function on($event, Closure $callback)
+    private function debug($message)
     {
-        if (!is_callable($callback))
+        if (!$this->debug)
         {
-            throw new \InvalidArgumentException('ElephantIOClient::on() type callback must be callable.');
-        }
-
-        if (!isset($this->callbacks[$event]))
-        {
-            $this->callbacks[$event] = array();
-        }
-        // @TODO Handle case where callback is a string
-        if (in_array($callback, $this->callbacks[$event])) {
-            $this->stdout('debug', 'Skip existing callback');
             return;
         }
-        $this->callbacks[$event][] = $callback;
-        $que = explode(':', $this->read(), 4);
+        $this->log->writer('debug', $message);
     }
 
     /**
-     * Send message to the websocket
-     *
-     * @access public
-     * @param int $type
-     * @param int $id
-     * @param int $endpoint
-     * @param string $message
-     * @throws \InvalidArgumentException
-     */
-    public function send($type, $id = null, $endpoint = null, $message = null)
-    {
-        if (!is_int($type) || $type > 8) {
-            throw new \InvalidArgumentException('ElephantIOClient::send() type parameter must be an integer strictly inferior to 9.');
-        }
-
-        $raw_message = $type.':'.$id.':'.$endpoint.':'.$message;
-
-        $this->payload->setOpcode(Payload::OPCODE_TEXT)->setMask(true)->setPayload($raw_message);
-        $encoded = $this->payload->encodePayload();
-
-        fwrite($this->fd, $encoded);
-
-        // wait 100ms before closing connexion
-        usleep(100*1000);
-
-        $this->stdout('debug', 'Sent '.$raw_message);
-
-        return $this;
-    }
-
-    /**
-     * Emit an event
-     *
-     * @param string $event
-     * @param array $args
-     * @param string $endpoint
-     * @param function $callback - ignored for the time being
-     * @todo work on callbacks
-     */
-    public function emit($event, $args, $endpoint = null, $callback = null)
-    {
-        $this->send(self::TYPE_EVENT, null, $endpoint, json_encode(array(
-            'name' => $event,
-            'args' => $args,
-            )
-        ));
-        return $this;
-    }
-
-    /**
-     * @return bool
-     */
-    public function disconnect()
-    {
-        if (is_resource($this->fd))
-        {
-            $this->send(self::TYPE_DISCONNECT);
-            fclose($this->fd);
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Close the socket
-     *
-     * @return boolean
-     */
-    public function close()
-    {
-        if (is_resource($this->fd)) {
-            $this->send(self::TYPE_DISCONNECT);
-            fclose($this->fd);
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Send ANSI formatted message to stdout.
-     * First parameter must be either debug, info, error or ok
+     * Handshake with socket.io server
      *
      * @access private
-     * @param string $type
-     * @param string $message
+     * @throws Exceptions\SocketHandshakeException
+     * @return bool
      */
-    private function stdout($type, $message) {
-        if (!defined('STDOUT') || !$this->debug) {
-            return false;
+    private function handshake()
+    {
+        $url = $this->url;
+        if (!empty($this->query))
+        {
+            $url .= $this->query;
+        }
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        // check ssl
+        if (!$this->checkSslPeer)
+        {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        }
+        //
+        if (!is_null($this->handshakeTimeout))
+        {
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, $this->handshakeTimeout);
+            curl_setopt($ch, CURLOPT_TIMEOUT_MS, $this->handshakeTimeout);
+        }
+        // exec
+        $result = curl_exec($ch);
+        if ($result === false || $result === '')
+        {
+            $errorInfo = curl_error($ch);
+            curl_close($ch);
+            throw new SocketHandshakeException($errorInfo);
+        }
+        //
+        $this->response = curl_getinfo($ch);
+        if($this->response['http_code'] != 200)
+        {
+            $header = $this->header->getResponseHeader();
+            throw new SocketHandshakeException($header, $this->response['http_code']);
         }
 
-        $typeMap = array(
-            'debug'   => array(36, '- debug -'),
-            'info'    => array(37, '- info  -'),
-            'error'   => array(31, '- error -'),
-            'ok'      => array(32, '- ok    -'),
-        );
+        $session = explode(':', $result);
+        $this->session['session_id'] = $session[0];
+        $this->session['heartbeat_timeout'] = $session[1];
+        $this->session['connection_timeout'] = $session[2];
+        $this->session['supported_transports'] = array_flip(explode(',', $session[3]));
 
-        if (!array_key_exists($type, $typeMap)) {
-            throw new \InvalidArgumentException('ElephantIOClient::stdout $type parameter must be debug, info, error or success. Got '.$type);
+        if (!isset($this->session['supported_transports']['websocket']))
+        {
+            throw new SocketHandshakeException('This socket.io server do not support websocket protocol. Terminating connection...');
+        }
+        return true;
+    }
+
+
+    /**
+     * Connects using websocket protocol
+     *
+     * @access private
+     * @throws Exceptions\SocketErrorException
+     * @throws \Exception
+     * @return bool
+     */
+    private function connect()
+    {
+        $this->handshake();
+        //
+        $url = parse_url($this->url);
+        $url['port'] = (isset($url['port'])) ? $url['port'] : null;
+        if (array_key_exists('scheme', $url) && $url['scheme'] == 'https')
+        {
+            $url['host'] = 'ssl://' . $url['host'];
+            if (!$url['port'])
+            {
+                $url['port'] = 443;
+            }
+        }
+        // socket open
+        $this->fd = fsockopen($url['host'], $url['port'], $errorCode, $errorMessage);
+        if (!$this->fd)
+        {
+            throw new SocketErrorException("fsockopen returned: {$errorMessage}", $errorCode);
+        }
+        //
+        $uri = $url['path'] . "/websocket/". $this->session['session_id'] . $this->query;
+
+        $output = $this->header->setRequestHeader($uri, $url['host'], $this->generateKey());
+
+        fwrite($this->fd, $output);
+        $response = fgets($this->fd);
+        // response error
+        if ($response === false)
+        {
+            throw new SocketErrorException('Socket.io did not respond properly. Aborting...');
+        }
+        // error
+        if ($message = substr($response, 0, 12) != 'HTTP/1.1 101')
+        {
+            throw new SocketErrorException("Unexpected Response. Expected HTTP/1.1 101 got {$message} Aborting...");
         }
 
-        fwrite(STDOUT, "\033[".$typeMap[$type][0]."m".$typeMap[$type][1]."\033[37m  ".$message."\r\n");
+        while(true)
+        {
+            $res = trim(fgets($this->fd));
+            if ($res === '') break;
+        }
+
+        if($this->read)
+        {
+            if ($this->read() != '1::')
+            {
+                throw new \Exception('Socket.io did not send connect response. Aborting...');
+            } else {
+                $this->debug('Server report us as connected !');
+            }
+        }
+
+        if($this->namespace)
+        {
+            $this->send(self::TYPE_CONNECT, "", $this->namespace);
+        }
+        $this->heartbeatStamp = time();
     }
 
     /**
+     * @access private
      * @param int $length
      * @return string
      */
@@ -338,178 +476,10 @@ class Client
     }
 
     /**
-     * Set Handshake timeout in milliseconds
      *
-     * @param int $delay
      */
-    public function setHandshakeTimeout($delay)
+    public function __destruct()
     {
-        $this->handshakeTimeout = $delay;
-    }
-
-    /**
-     * Handshake with socket.io server
-     *
-     * @access private
-     * @return bool
-     */
-    private function handshake()
-    {
-        $url = $this->url;
-        if (!empty($this->handshakeQuery))
-        {
-            $url .= $this->handshakeQuery;
-        }
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-
-        if (!$this->checkSslPeer)
-        {
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-        }
-
-        if (!is_null($this->handshakeTimeout))
-        {
-            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, $this->handshakeTimeout);
-            curl_setopt($ch, CURLOPT_TIMEOUT_MS, $this->handshakeTimeout);
-        }
-
-        $result = curl_exec($ch);
-        if ($result === false || $result === '')
-        {
-            $errorInfo = curl_error($ch);
-            curl_close($ch);
-            throw new SocketHandshakeException($errorInfo);
-        }
-        //
-        $this->response = curl_getinfo($ch);
-
-
-        $sess = explode(':', $result);
-        $this->session['sid'] = $sess[0];
-        $this->session['heartbeat_timeout'] = $sess[1];
-        $this->session['connection_timeout'] = $sess[2];
-        $this->session['supported_transports'] = array_flip(explode(',', $sess[3]));
-
-        if (!isset($this->session['supported_transports']['websocket']))
-        {
-            throw new \Exception('This socket.io server do not support websocket protocol. Terminating connection...');
-        }
-
-        return true;
-    }
-
-    /**
-     * @param callable $function
-     */
-    public function connection()
-    {
-        //$this->init()->connect();
-        return $this;
-    }
-
-    /**
-     * Connects using websocket protocol
-     *
-     * @access private
-     * @return bool
-     */
-    private function connect()
-    {
-        $this->fd = fsockopen($this->serverHost, $this->serverPort, $errno, $errstr);
-
-        if (!$this->fd)
-        {
-            throw new \Exception('fsockopen returned: '.$errstr);
-        }
-
-        $key = $this->generateKey();
-        $out  = "GET ".$this->serverPath."/websocket/". $this->session['sid']. $this->query . " HTTP/1.1\r\n";
-        $out .= "Host: ".$this->serverHost."\r\n";
-        $out .= "Upgrade: WebSocket\r\n";
-        $out .= "Connection: Upgrade\r\n";
-        $out .= "Resource Name: " . $this->namespace . "\r\n";
-        $out .= "Sec-WebSocket-Key: ".$key."\r\n";
-        $out .= "Sec-WebSocket-Version: 13\r\n";
-        $out .= "Origin: *\r\n\r\n";
-        fwrite($this->fd, $out);
-        $res = fgets($this->fd);
-
-        if ($res === false) {
-            throw new \Exception('Socket.io did not respond properly. Aborting...');
-        }
-
-        if ($subres = substr($res, 0, 12) != 'HTTP/1.1 101') {
-            throw new \Exception('Unexpected Response. Expected HTTP/1.1 101 got '.$subres.'. Aborting...');
-        }
-
-        while(true)
-        {
-            $res = trim(fgets($this->fd));
-            if ($res === '') break;
-        }
-
-        if ($this->read)
-        {
-            if ($this->read() != '1::')
-            {
-                throw new \Exception('Socket.io did not send connect response. Aborting...');
-            } else {
-                $this->stdout('info', 'Server report us as connected !');
-            }
-        }
-
-        if($this->namespace)
-        {
-            $this->send(self::TYPE_CONNECT, "", $this->namespace);
-        }
-        $this->heartbeatStamp = time();
-    }
-
-    /**
-     * Parse the url and set server parameters
-     *
-     * @access private
-     * @return bool
-     */
-    private function parseUrl()
-    {
-        $url = parse_url($this->url);
-
-        $this->serverPath = $url['path'];
-        $this->serverHost = $url['host'];
-        $this->serverPort = isset($url['port']) ? $url['port'] : null;
-
-        if (array_key_exists('scheme', $url) && $url['scheme'] == 'https')
-        {
-            $this->serverHost = 'ssl://'.$this->serverHost;
-            if (!$this->serverPort)
-            {
-                $this->serverPort = 443;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * @param array $array
-     */
-    public function query(array $array)
-    {
-        if(count($array))
-        {
-            $this->query = '?' . http_build_query($array);
-            $this->socketIOUrl = $this->socketIOUrl . $this->query;
-        }
-        return $this;
-    }
-
-    /**
-     * @return array
-     */
-    public function getResponseHeader()
-    {
-        return $this->response;
+        $this->disconnect();
     }
 }

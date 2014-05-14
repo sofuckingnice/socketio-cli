@@ -1,8 +1,7 @@
 {
-    "name": "wisembly/elephant.io",
-    "type": "Lib",
-    "description": "Send events to socket.io though PHP",
-    "keywords": ["Nodejs", "Socket.io", "WebSocket"],
+    "name": "ytake/socket.io-client",
+    "description": "Send events and receive socket.io PHP client",
+    "keywords": ["Socket.io", "WebSocket"],
     "license": "MIT",
     "authors": [
         {
@@ -14,9 +13,13 @@
         "php": ">=5.4",
 	    "monolog/monolog": "1.*"
     },
+	"require-dev": {
+		"phpunit/phpunit": "3.7.*"
+	},
     "autoload": {
         "psr-4": {
 	        "Ytake\\": "ytake/src"
         }
-    }
+    },
+	"minimum-stability": "stable"
 }

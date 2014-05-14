@@ -1,19 +1,18 @@
 <?php
-namespace Ytake\WebSocket\Io\Response;
+namespace Ytake\WebSocket\Io;
 
 /**
  * Class Header
- * @package Ytake\WebSocket\Io\Response
+ * @package Ytake\WebSocket\Io
  * @author  yuuki.takezawa<yuuki.takezawa@excite.jp>
  */
 class Header implements HeaderInterface
 {
-
+    /** @var array */
     protected $header = [
         // Informational 1xx
         100 => "Continue",
         101 => "Switching Protocols",
-
         // Successful 2xx
         200 => "OK",
         201 => "Created",
@@ -62,8 +61,34 @@ class Header implements HeaderInterface
     /**
      * @return array
      */
-    public function getHeader()
+    public function getResponseHeader()
     {
         return $this->header;
     }
-} 
+
+    /**
+     * @param $uri
+     * @param $host
+     * @param array $key
+     * @param array $options
+     * @param int $version Sec-WebSocket-Version
+     * @return string|void
+     */
+    public function setRequestHeader($uri, $host, $key, array $options = null, $version = 13)
+    {
+        $output = [
+            "GET {$uri} HTTP/1.1",
+            "Host: {$host}",
+            "Upgrade: WebSocket",
+            "Connection: Upgrade",
+            "Sec-WebSocket-Key: {$key}",
+            "Sec-WebSocket-Version: {$version}",
+            "Origin: *"
+        ];
+        if(is_array($options))
+        {
+            return implode("\r\n", array_merge($output, $options)) . "\r\n";
+        }
+        return implode("\r\n", $output) . "\r\n\r\n";
+    }
+}
