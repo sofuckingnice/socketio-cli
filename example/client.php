@@ -1,12 +1,29 @@
 <?php
+require(__DIR__ . "/../vendor/autoload.php");
 
-require( __DIR__ . '/../lib/ElephantIO/Client.php');
-use ElephantIO\Client as ElephantIOClient;
+use Ytake\WebSocket\Io;
 
-$elephant = new ElephantIOClient('http://localhost:8000', 'socket.io', 1, false, true, true);
+// instance
+$client = new Io\Client(new Io\Payload, new Io\Header, new Io\Log);
 
-$elephant->init();
-$elephant->emit('action', 'foo');
-$elephant->close();
+// simple use
+$client->client("http://localhost:3000")->connection()->disconnect();
 
-echo 'tryin to send `foo` to the event called action';
+// namespace support
+$client->client("http://localhost:3000")->query(['query' => 1])
+    // namespace
+    ->of('/active')->connection(function() use($client){
+            // event receive
+            $client->on('connection', function($data) use($client){
+                    // value from socket.io server
+                    var_dump($data);
+                });
+            // event emit
+            $client->emit('sender', ['hello']);
+            // event receive
+            $client->on('message', function($data) use($client){
+                    // value from socket.io server
+                    var_dump($data);
+                    $client->disconnect();
+                });
+        })->keepAlive();

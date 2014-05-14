@@ -1,9 +1,14 @@
 <?php
+namespace Ytake\WebSocket\Io;
 
-namespace ElephantIO;
-
-class Payload
+/**
+ * Class Payload
+ * @package WebSocket\Io
+ * @author  yuuki.takezawa<yuuki.takezawa@excite.jp>
+ */
+class Payload implements PayloadInterface
 {
+    //
     const OPCODE_CONTINUE = 0x0;
     const OPCODE_TEXT = 0x1;
     const OPCODE_BINARY = 0x2;
@@ -21,109 +26,182 @@ class Payload
     const OPCODE_CONTROL_RESERVED_4 = 0xE;
     const OPCODE_CONTROL_RESERVED_5 = 0xF;
 
-    private $fin = 0x1;
-    private $rsv1 = 0x0;
-    private $rsv2 = 0x0;
-    private $rsv3 = 0x0;
-    private $opcode;
-    private $mask = 0x0;
-    private $maskKey;
-    private $payload;
+    protected $fin = 0x1;
+    protected $rsv1 = 0x0;
+    protected $rsv2 = 0x0;
+    protected $rsv3 = 0x0;
+    protected $opcode;
+    protected $mask = 0x0;
+    protected $maskKey;
+    protected $payload;
 
-    public function setFin($fin) {
+    /**
+     * @param $fin
+     * @return $this
+     */
+    public function setFin($fin)
+    {
         $this->fin = $fin;
-
         return $this;
     }
 
-    public function getFin() {
+    /**
+     * @return int
+     */
+    public function getFin()
+    {
         return $this->fin;
     }
 
-    public function setRsv1($rsv1) {
+    /**
+     * @param $rsv1
+     * @return $this
+     */
+    public function setRsv1($rsv1)
+    {
         $this->rsv1 = $rsv1;
-
         return $this;
     }
 
-    public function getRsv1() {
+    /**
+     * @return int
+     */
+    public function getRsv1()
+    {
         return $this->rsv1;
     }
 
-    public function setRsv2($rsv2) {
+    /**
+     * @param $rsv2
+     * @return $this
+     */
+    public function setRsv2($rsv2)
+    {
         $this->rsv2 = $rsv2;
-
         return $this;
     }
 
-    public function getRsv2() {
+    /**
+     * @return int
+     */
+    public function getRsv2()
+    {
         return $this->rsv2;
     }
 
-    public function setRsv3($rsv3) {
+    /**
+     * @param $rsv3
+     * @return $this
+     */
+    public function setRsv3($rsv3)
+    {
         $this->rsv3 = $rsv3;
-
         return $this;
     }
 
-    public function getRsv3() {
+    /**
+     * @return int
+     */
+    public function getRsv3()
+    {
         return $this->rsv3;
     }
 
-    public function setOpcode($opcode) {
+    /**
+     * @param $opcode
+     * @return $this
+     */
+    public function setOpcode($opcode)
+    {
         $this->opcode = $opcode;
-
         return $this;
     }
 
-    public function getOpcode() {
+    /**
+     * @return mixed
+     */
+    public function getOpcode()
+    {
         return $this->opcode;
     }
 
-    public function setMask($mask) {
+    /**
+     * @param $mask
+     * @return $this
+     */
+    public function setMask($mask)
+    {
         $this->mask = $mask;
-
         if ($this->mask == true) {
             $this->generateMaskKey();
         }
-
         return $this;
     }
 
-    public function getMask() {
+    /**
+     * @return int
+     */
+    public function getMask()
+    {
         return $this->mask;
     }
 
-    public function getLength() {
+    /**
+     * @return int
+     */
+    public function getLength()
+    {
         return strlen($this->getPayload());
     }
 
-    public function setMaskKey($maskKey) {
+    /**
+     * @param $maskKey
+     * @return $this
+     */
+    public function setMaskKey($maskKey)
+    {
         $this->maskKey = $maskKey;
-
         return $this;
     }
 
-    public function getMaskKey() {
+    /**
+     * @return mixed
+     */
+    public function getMaskKey()
+    {
         return $this->maskKey;
     }
 
-    public function setPayload($payload) {
+    /**
+     * @param $payload
+     * @return $this
+     */
+    public function setPayload($payload)
+    {
         $this->payload = $payload;
-
         return $this;
     }
 
-    public function getPayload() {
+    /**
+     * @return mixed
+     */
+    public function getPayload()
+    {
         return $this->payload;
     }
 
-    public function generateMaskKey() {
+    /**
+     * @return string
+     */
+    public function generateMaskKey()
+    {
         $this->setMaskKey($key = openssl_random_pseudo_bytes(4));
-
         return $key;
     }
 
+    /**
+     * @return int|string
+     */
     public function encodePayload()
     {
         $payload = (($this->getFin()) << 1) | ($this->getRsv1());
@@ -159,13 +237,18 @@ class Payload
         return $payload;
     }
 
-    public function maskData($data, $key) {
+    /**
+     * @param $data
+     * @param $key
+     * @return string
+     */
+    public function maskData($data, $key)
+    {
         $masked = '';
 
         for ($i = 0; $i < strlen($data); $i++) {
             $masked .= $data[$i] ^ $key[$i % 4];
         }
-
         return $masked;
     }
 }
