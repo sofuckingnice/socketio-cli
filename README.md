@@ -1,37 +1,40 @@
-# Elephant.io
+# socketio-cli
+MIT Licenced
 
-[![Build Status](https://travis-ci.org/Wisembly/elephant.io.png?branch=master)](https://travis-ci.org/Wisembly/elephant.io)
+## install
+```bash
+    "require": {
+        "ytake/socketio-cli": "*"
+    },
+```
 
-MIT Licenced - Copyright © 2012. Wisembly
+## Send messages and Receive
+```php
+// namespace support
+$client->client("http://localhost:3000")->query(['query' => 1])
+    // namespace
+    ->of('/active')->connection(function() use($client){
+            // event receive
+            $client->on('connection', function($data) use($client){
+                    // value from socket.io server
+                    var_dump($data);
+                });
+            // event emit
+            $client->emit('sender', ['hello']);
+            // event receive
+            $client->on('message', function($data) use($client){
+                    // value from socket.io server
+                    var_dump($data);
+                    $client->disconnect();
+                });
+        })->keepAlive();
 
+```
 
-## About
+##  Licence
 
-Elephant.io is a rough socket.io client written in PHP. Its goal is to ease communications between your PHP application and a socket.io server.
-Protocol version of socket.io currently supported is 1.
-Only websocket transport is available at the moment.
-
-
-## Licence
-
-This software is distributed under MIT Licence. See LICENCE for more info.
-
-
-## Requirements
-
-You'll need openssl in your PHP config.
-
-
-## Contributors
-
-Author:
-    Ludovic Barreca <ludogp2@gmail.com>
-
-Mainteners:
-    Guillaume Potier <guillaume@wisembly.com>
-    Gabriel Majoulet <gabriel@wisembly.com>
-
+This software is distributed under MIT License. See license.txt file for more info.
 
 ## Special Thanks
 
-Special thanks goes to Mark Karpeles who helped me a bit to understand the way websockets works.
+Special thanks goes to Wisembly team authors of Elephant.io
