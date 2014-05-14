@@ -270,7 +270,6 @@ class Client
                 $name = $response['name'];
                 $data = $response['args'][0];
 
-                $this->debug("Receive event {$name} with data {$data['message']}");
                 if (!empty($this->callbacks[$name]))
                 {
                     foreach ($this->callbacks[$name] as $callback)
