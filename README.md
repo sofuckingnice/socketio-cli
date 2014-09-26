@@ -4,7 +4,7 @@ MIT Licenced
 ## install
 ```bash
     "require": {
-        "ytake/socketio-cli": "*"
+        "ytake/socketio-cli": "dev-master"
     },
 ```
 
